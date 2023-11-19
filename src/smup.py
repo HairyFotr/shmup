@@ -12,8 +12,8 @@ from pygame import Rect, Surface
 pg.init()
 
 # Constants for screen size
-SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 720
+SCREEN_WIDTH = 1920
+SCREEN_HEIGHT = 1080
 # FIXME: most code isn't resolution independent, and while other resolutions works, it changes gameplay
 
 # Set up the display
@@ -131,6 +131,8 @@ def rotate_image(image, rect, angle):
 bullets = []
 player_bullet_image = load_image("blue_bullet", 17)
 alien_bullet_image = load_image("green_bullet", 20)
+alien_bullet_big_right_image = load_image("green_bullet_big", 40)
+alien_bullet_big_left_image = load_image("green_bullet_big", 30)
 explosion_image = load_image("explosion")
 
 
@@ -152,6 +154,9 @@ class Bullet:
 
             match bullet.target_type:
                 case "Alien":
+                    if bullet.rect.centerx > SCREEN_WIDTH + 50:
+                        bullet.active = False
+
                     for alien in aliens:
                         if alien.health > 0 and bullet.rect.colliderect(alien.rect):
                             bullet.active = False
@@ -197,15 +202,61 @@ class BaseBeing:
         if datetime.now() > self.last_shot + self.shot_freq:
             global bullets
             if isinstance(self, Alien):
-                bullets.append(
-                    Bullet(
-                        alien_bullet_image,
-                        pg.Rect(0, 0, 10, 10).move(self.rect.centerx - 5, self.rect.centery - 5),
-                        speed=int(16 + (random.random() - random.random()) * 2),
-                        direction=(-1, 0.6 * ((random.random() + random.random() + random.random()) / 3 - 0.5)),
-                        target_type="Player",
-                    ),
-                )
+                if self.targeting_style == "random_xy":
+                    direction = (random.random() - random.random(), random.random() - random.random())
+                    magnitude = sqrt(direction[0] ** 2 + direction[1] ** 2)
+                    direction = (direction[0] / magnitude, direction[1] / magnitude)
+                    speed = 12
+                    offsetx = -25
+                    offsety = -30
+
+                    bullets.append(
+                        Bullet(
+                            alien_bullet_big_right_image,
+                            pg.Rect(0, 0, 10, 10).move(self.rect.centerx + offsetx, self.rect.centery + offsety),
+                            speed=speed,
+                            direction=direction,
+                            target_type="Player",
+                        ),
+                    )
+
+                    direction = (random.random() - random.random(), random.random() - random.random())
+                    magnitude = sqrt(direction[0] ** 2 + direction[1] ** 2)
+                    direction = (direction[0] / magnitude, direction[1] / magnitude)
+                    speed = 13
+                    offsetx = -85
+                    offsety = -35
+
+                    bullets.append(
+                        Bullet(
+                            alien_bullet_big_left_image,
+                            pg.Rect(0, 0, 10, 10).move(self.rect.centerx + offsetx, self.rect.centery + offsety),
+                            speed=speed,
+                            direction=direction,
+                            target_type="Player",
+                        ),
+                    )
+                else:
+                    direction = (-1, 0.7 * ((random.random() + random.random() + random.random()) / 3 - 0.5))
+                    magnitude = sqrt(direction[0] ** 2 + direction[1] ** 2)
+                    direction = (direction[0] / magnitude, direction[1] / magnitude)
+                    speed = int(15 + (random.random() - random.random()) * 3)
+                    offsetx = -5
+                    offsety = -5
+                    if self.targeting_style == "mirror":
+                        offsetx, offsety = random.choice([(-20, -20), (17, -26)])
+                    if self.targeting_style == "random_hit":
+                        offsetx, offsety = random.choice([(-45, -10), (-65, -10)])
+
+                    bullets.append(
+                        Bullet(
+                            alien_bullet_image,
+                            pg.Rect(0, 0, 10, 10).move(self.rect.centerx + offsetx, self.rect.centery + offsety),
+                            speed=speed,
+                            direction=direction,
+                            target_type="Player",
+                        ),
+                    )
             else:
                 bullets.extend(
                     [
@@ -267,18 +318,22 @@ player = Player(*load_image("ship", 100, (SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2)))
 # Alien
 @dataclass
 class Alien(BaseBeing):
+    speed: float = 4
+
     def can_shoot(self):
-        return super().can_shoot() and self.rect.x > player.rect.x and player.health > 0
+        normal_part = self.rect.x > player.rect.x and player.health > 0
+        big_part = self.targeting_style == "random_xy" and 0 < self.rect.centerx < SCREEN_WIDTH and 0 < self.rect.centery < SCREEN_HEIGHT
+        return super().can_shoot() and (normal_part or big_part)
 
     def update(self, shift_x, shift_y):
-        movement = 4  # Remaining movement
+        movement = self.speed  # Remaining movement
 
         total_x = 0
         total_y = 0
 
         # Alien avoidance logic
         for other in random.sample(aliens, len(aliens)):
-            if other != self and self.rect.colliderect(other.rect.inflate(10 + random.random() * 5, 10 + random.random() * 5)):
+            if other != self and self.rect.colliderect(other.rect.inflate(15 + random.random() * 10, 15 + random.random() * 10)):
                 if self.rect.x < other.rect.x:
                     total_x -= random.random()
                 else:
@@ -312,8 +367,8 @@ class Alien(BaseBeing):
         if self.health <= 0:
             self.opacity -= 15
 
-        if self.rect.x < -100:
-            self.rect.x = SCREEN_WIDTH + 100
+        if self.rect.x < -300:
+            self.rect.x = SCREEN_WIDTH + 300 + random.random() * 500
             self.rect.y = random.randint(-100, SCREEN_HEIGHT + 100)
             self.reset()
 
@@ -329,8 +384,9 @@ aliens = (
                 (SCREEN_WIDTH * 3 / 4 + random.randint(0, 1500), random.randint(100, SCREEN_HEIGHT - 100)),
             ),
             health=2,
+            speed=6 + random.random() * 2,
         )
-        for _ in range(8)
+        for _ in range(10)
     ]
     + [
         Alien(
@@ -341,8 +397,9 @@ aliens = (
             ),
             targeting_style="random_hit",
             health=8,
+            speed=2 + random.random(),
         )
-        for _ in range(5)
+        for _ in range(4)
     ]
     + [
         Alien(
@@ -353,8 +410,22 @@ aliens = (
             ),
             targeting_style="mirror",
             health=5,
+            speed=4 + random.random(),
         )
         for _ in range(3)
+    ]
+    + [
+        Alien(
+            *load_image(
+                "alien4",
+                250,
+                (3000, random.randint(100, SCREEN_HEIGHT - 100)),
+            ),
+            targeting_style="random_xy",
+            health=50,
+            speed=3,
+        )
+        for _ in range(1)
     ]
 )
 
@@ -486,6 +557,8 @@ while True:
         alien.update(shift_x, shift_y)
         if alien.can_shoot():
             if alien.targeting_style == "random" and random.random() * random.random() < difficulty:
+                alien.shoot()
+            if alien.targeting_style == "random_xy":
                 alien.shoot()
             if alien.targeting_style == "random_hit" and random.random() * random.random() < difficulty * (alien.original_health - alien.health + 1):
                 alien.shoot()
