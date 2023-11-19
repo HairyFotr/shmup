@@ -4,96 +4,80 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from math import sqrt
 
-import pygame
+import pygame as pg
 from dateutil.relativedelta import relativedelta
 from pygame import Rect, Surface
 
 # Initialize Pygame
-pygame.init()
+pg.init()
 
 # Constants for screen size
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
+# FIXME: most code isn't resolution independent, and while other resolutions works, it changes gameplay
 
 # Set up the display
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Shmup Game")
+screen = pg.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pg.display.set_caption("Shmup Game")
 
 # Controls
-joystick = None
-if pygame.joystick.get_count() > 0:
-    for joystick_id in range(pygame.joystick.get_count()):
-        joystick = pygame.joystick.Joystick(joystick_id)
-        if joystick.get_name() == "Controller":
-            break
-        joystick = None
-
 CONTROLS = {
     "left": {
-        "keyboard": pygame.K_LEFT,
+        "keyboard": [pg.K_LEFT, pg.K_a],
         "joystick_axis": (0, -1),
         "joystick_hat": (0, -1),
     },
     "right": {
-        "keyboard": pygame.K_RIGHT,
+        "keyboard": [pg.K_RIGHT, pg.K_d],
         "joystick_axis": (0, 1),
         "joystick_hat": (0, 1),
     },
     "up": {
-        "keyboard": pygame.K_UP,
+        "keyboard": [pg.K_UP, pg.K_w],
         "joystick_axis": (1, -1),
         "joystick_hat": (1, 1),
     },
     "down": {
-        "keyboard": pygame.K_DOWN,
+        "keyboard": [pg.K_DOWN, pg.K_s],
         "joystick_axis": (1, 1),
         "joystick_hat": (1, -1),
     },
     "shoot": {
-        "keyboard": pygame.K_SPACE,
+        "keyboard": [pg.K_SPACE, pg.K_RETURN],
         "joystick_button": 0,
+        "mouse_button": 0,
+    },
+    "dash": {
+        "keyboard": [pg.K_z, pg.K_x, pg.K_c, pg.K_v, pg.K_b, pg.K_n, pg.K_m],  # Bottom row
+        "joystick_button": 1,
+        "mouse_button": 2,
     },
     "quit": {
-        "keyboard": pygame.K_ESCAPE,
+        "keyboard": [pg.K_ESCAPE],
     },
 }
 
+joysticks = [pg.joystick.Joystick(joystick_id) for joystick_id in range(pg.joystick.get_count())]
 
-# Function to check input state and return actions
-def get_controls():
+
+def get_controls() -> dict[str, bool]:
+    """Check input devices state and return control actions."""
     controls = {}
-    keys = pygame.key.get_pressed()
+    pressed_keys = pg.key.get_pressed()
+    pressed_buttons = pg.mouse.get_pressed()
 
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
+    for event in pg.event.get():
+        if event.type == pg.QUIT:
             controls["quit"] = True
-
-        """
-        # Joystick button press
-        if event.type == pygame.JOYBUTTONDOWN:
-            print(f"Joystick Button Pressed: {event.button}")
-
-        # Joystick button release
-        if event.type == pygame.JOYBUTTONUP:
-            print(f"Joystick Button Released: {event.button}")
-
-        # Joystick axis movement
-        if event.type == pygame.JOYAXISMOTION:
-            print(f"Joystick Axis Moved: {event.axis} -> Value: {event.value}")
-
-        # Joystick hat (D-pad) movement
-        if event.type == pygame.JOYHATMOTION:
-            print(f"Joystick Hat Moved: {event.hat} -> Value: {event.value}")
-        """
 
     for action, control in CONTROLS.items():
         # Check keyboard
-        if keys[control["keyboard"]]:
-            controls[action] = True
-            continue
+        for key in control["keyboard"]:
+            if pressed_keys[key]:
+                controls[action] = True
 
         # Check joystick
-        if "joystick" in globals():
+        for joystick in joysticks:
             # Joystick buttons
             if "joystick_button" in control and joystick.get_button(control["joystick_button"]):
                 controls[action] = True
@@ -101,37 +85,53 @@ def get_controls():
             # Joystick axes
             if "joystick_axis" in control:
                 axis, direction = control["joystick_axis"]
-                if joystick.get_axis(axis) * direction > 0.1:
+                if joystick.get_axis(axis) * direction > 0.6:
                     controls[action] = True
 
-            # Joystick hat
             # Joystick hat (D-pad)
             if "joystick_hat" in control:
                 axis, direction = control["joystick_hat"]
-                hat_state = joystick.get_hat(0)
-                if hat_state[axis] == direction:
-                    controls[action] = True
+                if joystick.get_numhats() > 0:
+                    hat_state = joystick.get_hat(0)
+                    if hat_state[axis] == direction:
+                        controls[action] = True
 
-    # if controls:
-    #    print(controls)
+        # Check mouse
+        if "mouse_button" in control:
+            if pressed_buttons[control["mouse_button"]]:
+                controls[action] = True
     return controls
 
 
-def load_image(name: str, size: int | None = None, center: tuple[float, float] | None = None, size_by: str = "width"):
-    image = pygame.image.load(f"data/{name}.png").convert_alpha()
+def load_image(name: str, size: int | None = None, rect_center: tuple[float, float] | None = None, size_by: str = "width"):
+    image = pg.image.load(f"data/{name}.png").convert_alpha()
+
     if size is not None:
         if size_by == "width":
-            image = pygame.transform.scale(image, (size, int(size * image.get_height() / image.get_width())))
+            image = pg.transform.scale(image, (size, int(size * image.get_height() / image.get_width())))
+        elif size_by == "height":
+            image = pg.transform.scale(image, (int(size * image.get_width() / image.get_height()), size))
         else:
-            image = pygame.transform.scale(image, (int(size * image.get_width() / image.get_height()), size))
-    if center is not None:
-        rect = image.get_rect(center=center)
+            raise ValueError(f"Invalid size_by option: {size_by}")
+
+    if rect_center is not None:
+        rect = image.get_rect(center=rect_center)
         return image, rect
+
     return image
 
 
-# Player
+def rotate_image(image, rect, angle):
+    rotated_image = pg.transform.rotate(image, angle)
+    rotated_rect = rotated_image.get_rect(center=rect.center)
+    return rotated_image, rotated_rect
+
+
+# Player, Alien, and bullet logic
 bullets = []
+player_bullet_image = load_image("blue_bullet", 17)
+alien_bullet_image = load_image("green_bullet", 20)
+explosion_image = load_image("explosion")
 
 
 @dataclass
@@ -141,7 +141,7 @@ class Bullet:
     speed: int
     direction: tuple[float, float]
     target_type: str
-    active: bool = False
+    active: bool = True
 
     def update(self, shift_x, shift_y):
         if bullet.active:
@@ -150,45 +150,48 @@ class Bullet:
                 bullet.speed * bullet.direction[1] + shift_y,
             )
 
-            # Check collision based on target type
-            if bullet.target_type == "Alien":
-                for alien in aliens:
-                    if alien.health > 0:
-                        if bullet.rect.colliderect(alien.rect):
+            match bullet.target_type:
+                case "Alien":
+                    for alien in aliens:
+                        if alien.health > 0 and bullet.rect.colliderect(alien.rect):
                             bullet.active = False
                             alien.health -= 1
                             if alien.health <= 0:
                                 alien.die()
-
-            elif bullet.target_type == "Player":
-                if bullet.rect.colliderect(player.rect.scale_by(0.5, 0.5)):
-                    bullet.active = False
-                    player.health -= 1
-                    if player.health <= 0:
-                        player.die()
-
-
-player_bullet_image = load_image("blue_bullet", 17)
-alien_bullet_image = load_image("green_bullet", 20)
-explosion_image = load_image("explosion")
+                case "Player":
+                    if not player.dashing and bullet.rect.colliderect(player.rect.scale_by(0.5, 0.5)):
+                        bullet.active = False
+                        player.health -= 1
+                        if player.health <= 0:
+                            player.die()
 
 
 @dataclass
-class Shooter:
+class BaseBeing:
+    """Base class for player and alien."""
+
     image: Surface
     rect: Rect
     health: int = 5
     bullet_image: Surface = player_bullet_image
-    last_shot: datetime = datetime.now()
     shot_freq: relativedelta = relativedelta(microseconds=300000)
-    shoot_pos: tuple[float, float] = (70, 50)
+    last_shot: datetime = datetime.now()
     target_type: str = "Alien"
+    targeting_style: str = "random"
     opacity: int = 200
 
     def __post_init__(self):
         self.original_image = self.image.copy()
         self.original_health = self.health
         self.original_opacity = self.opacity
+
+    def reset(self):
+        self.image = self.original_image.copy()
+        self.health = self.original_health
+        self.opacity = self.original_opacity
+
+    def can_shoot(self):
+        return self.health > 0
 
     def shoot(self):
         if datetime.now() > self.last_shot + self.shot_freq:
@@ -197,11 +200,10 @@ class Shooter:
                 bullets.append(
                     Bullet(
                         alien_bullet_image,
-                        pygame.Rect(0, 0, 10, 10).move(self.rect.centerx - 5, self.rect.centery - 5),
-                        int(-16 + (random.random() - random.random()) * 2),
-                        (1, 0.25 * (random.random() - random.random())),
-                        "Player",
-                        True,
+                        pg.Rect(0, 0, 10, 10).move(self.rect.centerx - 5, self.rect.centery - 5),
+                        speed=int(16 + (random.random() - random.random()) * 2),
+                        direction=(-1, 0.6 * ((random.random() + random.random() + random.random()) / 3 - 0.5)),
+                        target_type="Player",
                     ),
                 )
             else:
@@ -209,19 +211,17 @@ class Shooter:
                     [
                         Bullet(
                             player_bullet_image,
-                            pygame.Rect(0, 0, 10, 10).move(self.rect.centerx - 15, self.rect.centery - 5 + 35),
-                            25,
-                            (1, -shift_y * 0.075),
-                            "Alien",
-                            True,
+                            pg.Rect(0, 0, 10, 10).move(self.rect.centerx - 15, self.rect.centery - 5 + 35),
+                            speed=25,
+                            direction=(1, -shift_y * 0.1),
+                            target_type="Alien",
                         ),
                         Bullet(
                             player_bullet_image,
-                            pygame.Rect(0, 0, 10, 10).move(self.rect.centerx - 15, self.rect.centery - 5 - 35),
-                            25,
-                            (1, -shift_y * 0.075),
-                            "Alien",
-                            True,
+                            pg.Rect(0, 0, 10, 10).move(self.rect.centerx - 15, self.rect.centery - 5 - 35),
+                            speed=25,
+                            direction=(1, -shift_y * 0.1),
+                            target_type="Alien",
                         ),
                     ]
                 )
@@ -229,21 +229,34 @@ class Shooter:
 
     def die(self):
         self.image = explosion_image.copy()
-        self.image = pygame.transform.scale(self.image, self.rect.size)
+        self.image = pg.transform.scale(self.image, self.rect.size)
 
 
 @dataclass
-class Player(Shooter):
+class Player(BaseBeing):
+    dash_fuel: float = 10
+    dash_fuel_capacity: float = 30
+    dashing: bool = False
+
     def update(self):
         if self.health <= 0:
             self.opacity -= 15
+        else:
+            if self.dashing:
+                self.dash_fuel -= 0.5
+                if self.dash_fuel <= 0:
+                    self.dashing = False
+                blinking_part = self.original_opacity / 2 if frame % 6 >= 3 else self.original_opacity / 3
+                fuel_depletion_part = self.original_opacity / 2 * (player.dash_fuel_capacity - player.dash_fuel) / player.dash_fuel_capacity
+                self.opacity = int(blinking_part + fuel_depletion_part)
+            elif self.dash_fuel < self.dash_fuel_capacity:
+                self.dash_fuel += 0.075
+                self.opacity = self.original_opacity
 
-        if self.opacity < -1000:
-            self.rect.x = 100
+        if self.opacity < -1500:  # FIXME: should be time based, or on button
+            self.rect.x = SCREEN_WIDTH / 4
             self.rect.y = SCREEN_HEIGHT / 2
-            self.health = self.original_health
-            self.image = self.original_image.copy()
-            self.opacity = self.original_opacity
+            self.reset()
 
         self.image.set_alpha(self.opacity)
 
@@ -253,7 +266,10 @@ player = Player(*load_image("ship", 100, (SCREEN_WIDTH / 4, SCREEN_HEIGHT / 2)))
 
 # Alien
 @dataclass
-class Alien(Shooter):
+class Alien(BaseBeing):
+    def can_shoot(self):
+        return super().can_shoot() and self.rect.x > player.rect.x and player.health > 0
+
     def update(self, shift_x, shift_y):
         movement = 4  # Remaining movement
 
@@ -299,9 +315,7 @@ class Alien(Shooter):
         if self.rect.x < -100:
             self.rect.x = SCREEN_WIDTH + 100
             self.rect.y = random.randint(-100, SCREEN_HEIGHT + 100)
-            self.health = self.original_health
-            self.image = self.original_image.copy()
-            self.opacity = self.original_opacity
+            self.reset()
 
         self.image.set_alpha(self.opacity)
 
@@ -311,9 +325,10 @@ aliens = (
         Alien(
             *load_image(
                 "alien1",
-                int(100 + 15 * random.random()),
+                int(90 + 25 * random.random()),
                 (SCREEN_WIDTH * 3 / 4 + random.randint(0, 1500), random.randint(100, SCREEN_HEIGHT - 100)),
-            )
+            ),
+            health=2,
         )
         for _ in range(8)
     ]
@@ -321,9 +336,11 @@ aliens = (
         Alien(
             *load_image(
                 "alien2",
-                int(130 + 20 * random.random()),
+                int(130 + 30 * random.random()),
                 (SCREEN_WIDTH * 3 / 4 + random.randint(0, 1500), random.randint(100, SCREEN_HEIGHT - 100)),
-            )
+            ),
+            targeting_style="random_hit",
+            health=8,
         )
         for _ in range(5)
     ]
@@ -331,9 +348,11 @@ aliens = (
         Alien(
             *load_image(
                 "alien3",
-                int(90 + 20 * random.random()),
+                int(90 + 30 * random.random()),
                 (SCREEN_WIDTH * 3 / 4 + random.randint(0, 1500), random.randint(100, SCREEN_HEIGHT - 100)),
-            )
+            ),
+            targeting_style="mirror",
+            health=5,
         )
         for _ in range(3)
     ]
@@ -354,7 +373,7 @@ class StarLayer:
 
     def draw(self):
         for star in self.stars:
-            pygame.draw.circle(screen, self.color, star, self.radius)
+            pg.draw.circle(screen, self.color, star, self.radius)
 
     def update(self, shift_x, shift_y):
         for star in self.stars:
@@ -366,30 +385,10 @@ class StarLayer:
 
 
 star_layers = [
-    StarLayer(
-        speed=3.1,
-        count=200,
-        color=(240, 240, 240),
-        radius=1.9,
-    ),
-    StarLayer(
-        speed=2.4,
-        count=200,
-        color=(220, 220, 220),
-        radius=1.7,
-    ),
-    StarLayer(
-        speed=1.5,
-        count=100,
-        color=(150, 150, 150),
-        radius=1.4,
-    ),
-    StarLayer(
-        speed=1.1,
-        count=50,
-        color=(75, 75, 75),
-        radius=1.2,
-    ),
+    StarLayer(speed=3.1, count=200, color=(240, 240, 240), radius=1.9),
+    StarLayer(speed=2.4, count=200, color=(220, 220, 220), radius=1.7),
+    StarLayer(speed=1.5, count=100, color=(150, 150, 150), radius=1.4),
+    StarLayer(speed=1.1, count=50, color=(75, 75, 75), radius=1.2),
 ]
 
 # Background
@@ -402,8 +401,8 @@ def update_background():
     global bg_x1, bg_x2
 
     # Move backgrounds
-    bg_x1 -= 2  # Adjust speed as needed
-    bg_x2 -= 2
+    bg_x1 -= 1  # Adjust speed as needed
+    bg_x2 -= 1
 
     # Reset backgrounds when they go off screen
     if bg_x1 < -bg_image.get_width():
@@ -413,18 +412,32 @@ def update_background():
 
 
 # Game loop
+frame = 0
+last_controls = {}
 while True:
+    frame += 1
+
+    difficulty = 0.0015 + frame * 0.0000001
+    if frame % 1000 == 0:
+        print(difficulty)
+
     shift_x = 0
     shift_y = 0
 
+    # Process controls
     controls = get_controls()
 
     if "quit" in controls:
-        pygame.quit()
+        pg.quit()
         sys.exit()
 
-    if player.opacity > 0:
+    if player.health > 0:
         move_by = 6
+        if player.dashing:
+            # Make controls faster and sticky
+            controls |= {key: value for key, value in last_controls.items() if key == "left" and "right" not in controls or key == "right" and "left" not in controls or key == "up" and "down" not in controls or key == "down" and "up" not in controls}
+            move_by = 6.5 + 4 * player.dash_fuel / player.dash_fuel_capacity
+
         if ("left" in controls or "right" in controls) and ("up" in controls or "down" in controls):
             move_by /= sqrt(2)
 
@@ -438,47 +451,68 @@ while True:
 
         if "up" in controls:
             player.rect.y -= move_by
-            shift_y += 1 * move_by / 2
+            shift_y += 1.0 * move_by / 2
 
         if "down" in controls:
             player.rect.y += move_by
-            shift_y -= 1 * move_by / 2
+            shift_y -= 1.0 * move_by / 2
 
-        if "shoot" in controls:
-            player.shoot()
+        if player.dashing:
+            shift_y *= 2
 
+        if "dash" in controls and player.dash_fuel > 10:
+            player.dashing = True
+        if "dash" not in controls:
+            player.dashing = False
+            if "shoot" in controls:
+                player.shoot()
+    last_controls = controls.copy()
+
+    # Clear screen
     screen.fill((0, 0, 0))
+
+    # Background
     update_background()
     screen.blit(bg_image, (bg_x1, 0))
     screen.blit(bg_image, (bg_x2, 0))
 
+    # Stars
     for star_layer in star_layers:
         star_layer.update(shift_x, shift_y)
         star_layer.draw()
 
+    # Aliens
     for alien in aliens:
         alien.update(shift_x, shift_y)
-        if random.random() * random.random() < 0.002 and alien.health > 0:
-            alien.shoot()
+        if alien.can_shoot():
+            if alien.targeting_style == "random" and random.random() * random.random() < difficulty:
+                alien.shoot()
+            if alien.targeting_style == "random_hit" and random.random() * random.random() < difficulty * (alien.original_health - alien.health + 1):
+                alien.shoot()
+            if alien.targeting_style == "mirror" and random.random() * random.random() < difficulty * 6 and datetime.now() - player.shot_freq * 3 < player.last_shot and alien.rect.x < SCREEN_WIDTH:
+                alien.shoot()
         screen.blit(alien.image, alien.rect)
 
+    # Bullets
     for bullet in bullets:
         bullet.update(shift_x, shift_y)
+
         if bullet.active:
-            screen.blit(bullet.image, bullet.rect)
+            if bullet.target_type == "Player":
+                img, _ = rotate_image(bullet.image, bullet.rect, 360 * random.random())
+            else:
+                img = bullet.image
+            screen.blit(img, bullet.rect)
         else:
             img = bullet.image.copy()
             img.set_alpha(127)
             screen.blit(img, bullet.rect)
+
     bullets = [b for b in bullets if b.active]
 
-    def rotate_image(angle):
-        rotated_image = pygame.transform.rotate(player.image, angle)
-        rotated_rect = rotated_image.get_rect(center=player.rect.center)
-        return rotated_image, rotated_rect
-
+    # Player
     player.update()
-    screen.blit(*rotate_image(shift_y * 1.5))
+    screen.blit(*rotate_image(player.image, player.rect, shift_y * 1.5))
 
-    pygame.display.flip()
-    pygame.time.Clock().tick(60)
+    pg.display.flip()
+    pg.time.Clock().tick(60)
