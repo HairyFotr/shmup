@@ -317,7 +317,7 @@ class Player(BaseBeing):
                 self.dash_fuel -= 0.5 * dt
                 if self.dash_fuel <= 0:
                     self.dashing = False
-                blinking_part = self.original_opacity / 2 if frame % 6 >= 3 else self.original_opacity / 3
+                blinking_part = self.original_opacity / 2 if frame % 22 >= 11 else self.original_opacity / 6
                 fuel_depletion_part = self.original_opacity / 2 * (player.dash_fuel_capacity - player.dash_fuel) / player.dash_fuel_capacity
                 self.opacity = int(blinking_part + fuel_depletion_part)
             elif self.dash_fuel < self.dash_fuel_capacity:
@@ -483,7 +483,7 @@ class StarLayer:
 
     def update(self, shift_x, shift_y):
         for star in self.stars:
-            star[0] -= self.speed + shift_x * self.speed / 2
+            star[0] -= self.speed * dt + shift_x * self.speed / 2
             star[1] += shift_y
             if star[0] < -self.radius:
                 star[0] = SCREEN_WIDTH + self.radius
@@ -498,9 +498,10 @@ star_layers = [
 ]
 
 # Background
-bg_image = load_image("background", SCREEN_HEIGHT, size_by="height")
+bg_image = load_image("background_waifu2x_art_scan_noise3_scale", SCREEN_HEIGHT, size_by="height")
 bg_x1 = 0.0
 bg_x2 = float(bg_image.get_width())
+print(bg_image.get_rect())
 
 
 def update_background():
@@ -521,15 +522,18 @@ def update_background():
 frame = 0
 last_controls = {}
 clock = pg.time.Clock()
-expected_dt = 1000 / 40
 while True:
     frame += 1
+
+    # Two difficulty factors here - it gets faster, and they shoot a bit more
+    speed_difficulty = 36 + frame * 0.00025
+    expected_dt = 1000 / (speed_difficulty)
     dt = clock.tick(60) / expected_dt
 
     frame_difficulty = (0.0010 + frame * 0.0000001) * dt
-    if frame % 1000 == 0:
-        print(frame_difficulty)
-
+    if frame % 300 == 0:
+        print("Difficulty", frame_difficulty, speed_difficulty)
+        print("FPS:", clock.get_fps())
     shift_x = 0.0
     shift_y = 0.0
 
@@ -541,12 +545,12 @@ while True:
         sys.exit()
 
     if player.health > 0:
-        base_move_by = 7 * dt
+        base_move_by = 7.5 * dt
         move_by = base_move_by
         if player.dashing:
             # Make controls faster and sticky
             controls |= {key: value for key, value in last_controls.items() if key == "left" and "right" not in controls or key == "right" and "left" not in controls or key == "up" and "down" not in controls or key == "down" and "up" not in controls}
-            move_by = base_move_by + 2 + 4 * player.dash_fuel / player.dash_fuel_capacity
+            move_by = base_move_by + 1 + 4 * player.dash_fuel / player.dash_fuel_capacity
 
         if ("left" in controls or "right" in controls) and ("up" in controls or "down" in controls):
             move_by /= sqrt(2)
@@ -580,7 +584,6 @@ while True:
         shift_x *= dt
         shift_y *= dt
     last_controls = controls.copy()
-    print(player.rect)
 
     # Clear screen
     screen.fill((0, 0, 0))
@@ -639,5 +642,3 @@ while True:
     screen.blit(*rotate_image(player.image, player.rect, round(shift_y * 1.5), player.opacity))
 
     pg.display.flip()
-    if frame % 60 == 0:
-        print("FPS:", clock.get_fps())
